@@ -1,0 +1,9 @@
+{
+  "_comment": "Paramètres de risque (overridables via UI ATAS). Ce fichier sert de référence et de valeur par défaut.",
+  "tickValueUsd": 12.50,
+  "maxDailyLossUsd": 1000.0,
+  "maxDailyGainUsd": 1000.0,
+  "maxConsecutiveLosses": 5,
+  "fixedPositionSize": 1,
+  "slippageTicksBacktest": 1
+}

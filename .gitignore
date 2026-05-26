@@ -1,0 +1,22 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+
+## IDE
+.vs/
+.vscode/
+.idea/
+
+## Extraction temp
+docx_content.txt
+extract_docx.py
+
+## OS
+Thumbs.db
+.DS_Store
+
+## ATAS deploy artifacts (generated post-build)
+*.pdb

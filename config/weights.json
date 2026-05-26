@@ -1,0 +1,11 @@
+{
+  "_comment": "Poids du scoring probabiliste (cf. master_research_document_ES_microstructure). Phase 1 = exploratoire : seuil bas pour observer la distribution. À resserrer après analyse du journal CSV.",
+  "weights": {
+    "deltaInefficiency": 3.0,
+    "weakClose": 2.0,
+    "volumeSpike": 1.0,
+    "proximityContext": 2.0
+  },
+  "threshold": 3.5,
+  "_threshold_comment": "Phase 1 : 3.5 (laisse passer ~les configurations avec 2 features bien marquées). Phase 2 : monter à 4.5-5.0 après validation."
+}
