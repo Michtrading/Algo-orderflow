@@ -1,81 +1,67 @@
-# Algo Orderflow — Failed Auction Reversal (ATAS, ES futures)
+# Algo Orderflow — ES futures (ATAS, range 8 ticks)
 
-Stratégie ATAS C# (.NET 10 Windows) qui implémente le « Failed Auction / Trapped Trader Reversal » défini dans `master_research_document_ES_microstructure`.
+Stratégie ATAS C# (.NET 10 Windows) — moteur **v2** : divergence delta **par bougie** + absorption VPOC + régime VWAP / Open RTH / bandes SD.
 
 > **Objectif** : robustesse statistique, faible variance, compatibilité prop firm.
-> **Non-objectif** : maximisation du profit historique.
 
-## Cadre de travail (non négociable)
+## Edge v2 (défaut)
 
-- Marché : **ES futures**, RTH **09:30–11:00 NY** (extension 11:30 si stats le justifient)
-- Graphique : **range bars 8 ticks** (à configurer manuellement dans ATAS)
-- Edge : agression inefficace (delta/volume sans progression) près d'un niveau contextuel (ONH/ONL/RTH VWAP)
-- Exécution : MKT à la clôture, stop ~9 ticks, target fixe (RR 1:1 à 1:1.5)
-- Taille fixe, ±1000 $ / jour, 5–6 pertes consécutives = halt, pas de revenge
-- Scoring probabiliste pondéré (pas IF-AND-AND)
-- Slippage 1–2 ticks simulé obligatoirement en backtest
+1. **Volume surge** : volume bougie signal ≥ ratio × moyenne des N bougies précédentes (défaut N=3, ratio≥1.5).
+2. **Divergence bougie** (mean revert) : verte + delta vendeur ≤ −min, ou rouge + delta acheteur ≥ +min (défaut 50).
+3. **Absorption VPOC** : POC concentré en haut/bas + close du bon côté du POC (`MaxVolumePriceInfo` ATAS).
+4. **Régime** : pente VWAP (20 barres, ±0.5 tick/bar) ; filtre Open RTH 9:30.
+5. **Zones** : VWAP + SD±1/±2 uniquement (proximité close **ou** mèche low/high).
+6. **TREND** : delta aligné **ou** divergence pullback absorbée au support/résistance dans le sens de la pente.
+7. **MEAN_REVERT** : divergence + absorption (SD±2 prioritaire, puis SD±1/VWAP).
+
+Le moteur **legacy** (ancien scoring failed auction mono-bougie) reste disponible via `Moteur legacy = ON`.
 
 ## Architecture
 
-Une seule `partial class FailedAuctionReversalStrategy : ChartStrategy`, éclatée par fichier :
-
 | Fichier | Rôle |
 |---|---|
-| `FailedAuctionReversalStrategy.cs` | ctor, état général, boucle `OnCalculate`, `OnRecalculate`, hooks broker |
-| `.Parameters.cs` | tous les paramètres UI ATAS (`[Display]` + `[Parameter]`) |
-| `.TradingHours.cs` | fenêtre 09:30–11:00 NY, `IsNewTradingSession` |
-| `.Context.cs` | ONH/ONL (fenêtre 18:00 NY J-1 → 09:30 NY J), RTH VWAP, vitesse de formation des bougies |
-| `.Detection.cs` | features microstructure : delta inefficient, weak close, volume spike |
-| `.Scoring.cs` | combinaison pondérée + seuil, recharge `config/weights.json` |
-| `.Trade.cs` | exécution live MKT close + bracket SL/TP attaché à la position |
-| `.Backtest.cs` | toggle `BacktestMode` + simulation interne fills/hits, slippage |
-| `.Risk.cs` | PnL journalier (baseline `ClosedPnL` + delta) |
-| `.Safety.cs` | kill switch pertes consécutives + flatten d'urgence |
-| `.Render.cs` | dashboard + flèches d'entrée (lignes SL/TP via `HorizontalLinesTillTouch`) |
-| `.Log.cs` | log circulaire + journal CSV append-only par jour |
+| `FailedAuctionReversalStrategy.cs` | boucle `OnCalculate`, entrée v2 / legacy |
+| `.Context.cs` | ONH/ONL, VWAP RTH, stdev, SD±1/±2, Open RTH, pente |
+| `.Setup.cs` | gate volume, divergence, VPOC |
+| `.Regime.cs` | veto auction, filtre Open, routage TREND / MEAN_REVERT |
+| `.Detection.cs` / `.Scoring.cs` | legacy uniquement |
+| `.Trade.cs` / `.Backtest.cs` | exécution MKT + bracket |
+| `.Log.cs` | journal CSV v2 (rotation auto si ancien header) |
+
+## Paramètres principaux (ATAS)
+
+| Groupe | Paramètres |
+|--------|------------|
+| **Moteur** | `UseLegacyEngine` (défaut OFF) |
+| **Setup** | `VolLookbackBars`, `VolRatioMin`, `DeltaMinAbs`, `VpocExtremeRatio`, `ZoneProximityTicks` |
+| **Regime** | `VwapSlopeLookback`, `VwapSlopeTrendThreshold`, `AuctionOpenRangeTicks`, `SdMultiplier1/2` |
 
 ## Build
-
-Prérequis : ATAS installé dans `C:\Program Files (x86)\ATAS Platform`, .NET 10 SDK.
 
 ```powershell
 dotnet build -c Release
 ```
 
-La DLL est compilée puis **copiée automatiquement** vers `%APPDATA%\ATAS\Strategies\AlgoOrderflow.dll` (cible MSBuild `CopyToAtasStrategies`).
+DLL copiée vers `%APPDATA%\ATAS\Strategies\AlgoOrderflow.dll`.
 
-## Chargement dans ATAS
+## Journal CSV v2
 
-1. Ouvrir ATAS, charger un graphique **ES**.
-2. Configurer le type de graphique en **range bar 8 ticks** (Chart settings).
-3. Clic droit sur le chart → ouvrir la liste des stratégies → ajouter `FailedAuctionReversal_ES`.
-4. Régler les paramètres (groupes : Detection / Scoring / Bracket / Risque / Backtest / Interface / Horaires).
-5. Cliquer sur Start.
+`%APPDATA%\ATAS\Strategies\AlgoOrderflow\journal_yyyy-MM-dd.csv`
+
+Si un ancien fichier sans colonnes `trade_mode` existe, il est renommé en `journal_yyyy-MM-dd_pre_v2.csv`.
+
+Analyse PowerShell :
+
+```powershell
+.\tools\analyze-journal.ps1 -Path "$env:APPDATA\ATAS\Strategies\AlgoOrderflow\journal_2026-05-26.csv"
+# LIVE d'un jour précis :
+.\tools\analyze-journal.ps1 -Path "..." -LiveDate "2026-05-26"
+```
+
+Le script affiche un bloc **BT vs LIVE** (expectancy, exp_R, R_ratio, profit factor), les régimes/modes en backtest, les segments faibles, et le détail live si ≤ 30 trades.
 
 ## Backtest
 
-- Activer **Backtest → Mode backtest historique** dans les paramètres.
-- La stratégie simule en interne (pas de connexion broker) sur tout l'historique chargé du chart.
-- Slippage par défaut = 1 tick (paramètre `SlippageTicksBacktest`, valeurs 1 ou 2 recommandées).
-- Chaque trade affiche **deux rectangles** (vert = zone TP, rouge = zone SL) de la bougie d'entrée jusqu'à la bougie de sortie (toggle `ShowTradeRectangles`).
-- **Niveaux contexte** affichés sur le chart (toggle `ShowContextLevels`) : ONH cyan pointillé, ONL orange pointillé, VWAP RTH jaune (courbe qui évolue en session). Historique conservé en backtest multi-jours.
-- Journal CSV : `%APPDATA%\ATAS\Strategies\AlgoOrderflow\journal_yyyy-MM-dd.csv`.
-
-## Anti-features (interdits par le doc, à respecter)
-
-- Pas d'ATR sur range bars
-- Pas d'EMA crossover, RSI, MACD, indicateur empilé
-- Pas d'ordre limite à la place du MKT close
-- Pas de trailing stop, scaling, martingale, sizing progressif
-- Pas de logique de revenge
-- Pas de dépendance fine au footprint en phase 1 (delta + volume suffisent)
-
-## Phases de livraison
-
-- **Phase 1 (1 mois exploratoire)** : code livré ici. Lancer en `BacktestMode` sur 1 mois ES, observer la distribution des trades, MAE/MFE, expectancy.
-- **Phase 2 (6–12 mois robustesse)** : enrichir le scoring si besoin, n'ajouter des features qu'après validation statistique. Walk-forward.
-- **Phase 3** : optimisation des poids hors-période, validation in-sample/out-of-sample.
-
-## Hors périmètre
-
-NQ/GC, footprint avancé (stacked imbalance, unfinished auction), tailles dynamiques, seuils adaptatifs, classification de régime, VWAP mean reversion, breakout initiative, cross-market hedging, DOM metrics → **interdits avant validation de l'edge** (consigne du doc).
+- Activer **Mode backtest historique**.
+- Pas de popups en backtest (logs fichier + dashboard).
+- Recharger la stratégie après chaque build.

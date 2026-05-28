@@ -34,6 +34,7 @@ namespace AlgoOrderflow.Models
         public decimal Mfe { get; set; }
 
         public ScoreSnapshot Score { get; set; }
+        public SetupSnapshot Setup { get; set; }
         public bool IsBacktest { get; set; }
     }
 }

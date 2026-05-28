@@ -29,6 +29,8 @@ namespace AlgoOrderflow
         private int _entryBar = -1;
         private DateTime _entryTimeUtc = DateTime.MinValue;
         private ScoreSnapshot _entryScore;
+        private SetupSnapshot _entrySetup;
+        private string _lastVetoReason = "";
         private decimal _maeRunning;
         private decimal _mfeRunning;
 
@@ -40,7 +42,7 @@ namespace AlgoOrderflow
 
         // ── Backing fields paramètres ────────────────────────────────────
         private int _slTicks = 9;
-        private int _tpTicks = 9;
+        private int _tpTicks = 8;
         private int _positionSize = 1;
         private decimal _tickValueUsd = 12.50m;
 
@@ -53,6 +55,32 @@ namespace AlgoOrderflow
         private int _lookbackBars = 20;
         private bool _requireDirectionalProximity;
         private bool _requireProximityForTrade;
+
+        // Moteur v2 — divergence bougie + absorption VPOC + régime
+        private bool _useLegacyEngine;
+        private bool _enableAbsorptionEngine = true;
+        private bool _enableBreakoutEngine;
+        private int _volLookbackBars = 3;
+        private decimal _volRatioMin = 1.5m;
+        private decimal _deltaMinAbs = 50m;
+        private decimal _vpocExtremeRatio = 0.65m;
+        private int _zoneProximityTicks = 8;
+        private int _vwapSlopeLookback = 20;
+        private decimal _vwapSlopeTrendThreshold = 0.5m;
+        private int _auctionOpenRangeTicks = 12;
+        private decimal _sdMultiplier1 = 1m;
+        private decimal _sdMultiplier2 = 2m;
+
+        private int _breakSwingLookbackBars = 5;
+        private int _breakVolumeLookbackBars = 1;
+        private decimal _breakVolRatioMin = 1.5m;
+        private decimal _breakDeltaMinAbs = 50m;
+        private decimal _breakVelocityMaxRatio = 0.65m;
+        private decimal _breakAcceptanceTopRatio = 0.75m;
+        private bool _breakUseSwing = true;
+        private bool _breakUseVolumeNode = true;
+        private int _breakSlTicks = 9;
+        private int _breakTpTicks = 8;
 
         private decimal _scoreThreshold = 3.5m;
         private decimal _wDelta = 3.0m;
@@ -112,6 +140,8 @@ namespace AlgoOrderflow
             _entryBar = -1;
             _entryTimeUtc = DateTime.MinValue;
             _entryScore = null;
+            _entrySetup = null;
+            _lastVetoReason = "";
             _maeRunning = 0m;
             _mfeRunning = 0m;
 
@@ -203,6 +233,8 @@ namespace AlgoOrderflow
                 _status = "Hors fenetre horaire";
             else if (_tradeState == TradeState.InTrade)
                 _status = $"In trade {(_tradeIsLong ? "LONG" : "SHORT")} @ {_entryPrice:F2}";
+            else if (!UseLegacyEngine && !string.IsNullOrEmpty(_lastVetoReason))
+                _status = $"Pret ({_ctx.VwapRegime})";
             else
                 _status = "Pret";
         }
@@ -252,16 +284,49 @@ namespace AlgoOrderflow
         private void TryEvaluateAndEnter(int bar, decimal ts)
         {
             int evalBar = bar - 1;
-            if (evalBar < _lookbackBars + 1)
+            int minBars = UseLegacyEngine
+                ? _lookbackBars + 1
+                : Math.Max(_lookbackBars, VolLookbackBars) + 1;
+            if (evalBar < minBars)
                 return;
 
-            var score = ComputeScore(evalBar, ts);
-            if (score == null || score.Side == SignalSide.None)
+            if (UseLegacyEngine)
+            {
+                var score = ComputeScore(evalBar, ts);
+                if (score == null || score.Side == SignalSide.None)
+                    return;
+                if (score.Total < ScoreThreshold)
+                    return;
+                EnterTrade(bar, evalBar, ts, score, null);
                 return;
-            if (score.Total < ScoreThreshold)
+            }
+
+            var setup = (SetupSnapshot)null;
+
+            if (!UseLegacyEngine && !EnableAbsorptionEngine && !EnableBreakoutEngine)
+            {
+                setup = null;
+                return;
+            }
+
+            if (EnableBreakoutEngine)
+            {
+                setup = EvaluateBreakoutSetup(evalBar, ts);
+                if (setup != null && !string.IsNullOrEmpty(setup.VetoReason))
+                    _lastVetoReason = setup.VetoReason;
+            }
+
+            if ((setup == null || !setup.IsValid) && EnableAbsorptionEngine)
+            {
+                setup = EvaluateSetupV2(evalBar, ts);
+                if (setup != null && !string.IsNullOrEmpty(setup.VetoReason))
+                    _lastVetoReason = setup.VetoReason;
+            }
+
+            if (setup == null || !setup.IsValid || setup.Side == SignalSide.None)
                 return;
 
-            EnterTrade(bar, evalBar, ts, score);
+            EnterTrade(bar, evalBar, ts, null, setup);
         }
     }
 }

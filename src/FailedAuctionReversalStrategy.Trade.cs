@@ -13,21 +13,34 @@ namespace AlgoOrderflow
     public partial class FailedAuctionReversalStrategy
     {
         /// <summary>Point d'entrée appelé par OnCalculate quand le score franchit le seuil.</summary>
-        private void EnterTrade(int barNow, int evalBar, decimal ts, ScoreSnapshot score)
+        private void EnterTrade(int barNow, int evalBar, decimal ts, ScoreSnapshot score, SetupSnapshot setup)
         {
             if (_tradeState != TradeState.None)
                 return;
 
-            _tradeIsLong = score.Side == SignalSide.Long;
+            if (setup != null)
+            {
+                _tradeIsLong = setup.Side == SignalSide.Long;
+                _entrySetup = setup;
+                _entryScore = null;
+            }
+            else if (score != null)
+            {
+                _tradeIsLong = score.Side == SignalSide.Long;
+                _entryScore = score;
+                _entrySetup = null;
+            }
+            else
+                return;
+
             _entryBar = barNow;
             _entryTimeUtc = DateTime.UtcNow;
-            _entryScore = score;
             _maeRunning = 0m;
             _mfeRunning = 0m;
 
             if (BacktestMode)
             {
-                EnterTradeBacktest(barNow, evalBar, ts, score);
+                EnterTradeBacktest(barNow, evalBar, ts, score, setup);
                 return;
             }
 
@@ -36,6 +49,7 @@ namespace AlgoOrderflow
                 AddLog("EnterTrade abandonné : Portfolio/Security null");
                 _tradeState = TradeState.None;
                 _entryScore = null;
+                _entrySetup = null;
                 return;
             }
 
@@ -55,8 +69,12 @@ namespace AlgoOrderflow
                 _tradeState = TradeState.EntryPending;
                 _bracketPending = true;
                 OpenOrder(_entryOrder);
-                AddLog($"ENTRY MKT {(_tradeIsLong ? "BUY" : "SELL")} {PositionSize}c " +
-                       $"score={score.Total:F2} ({score.ToCsvComponents()})");
+                if (setup != null)
+                    AddLog($"ENTRY MKT {(_tradeIsLong ? "BUY" : "SELL")} {PositionSize}c " +
+                           $"mode={setup.TradeMode} trigger={setup.BreakTrigger ?? "-"} vol={setup.VolRatio:F2}");
+                else
+                    AddLog($"ENTRY MKT {(_tradeIsLong ? "BUY" : "SELL")} {PositionSize}c " +
+                           $"score={score.Total:F2} ({score.ToCsvComponents()})");
             }
             catch (Exception ex)
             {
@@ -65,6 +83,7 @@ namespace AlgoOrderflow
                 _entryOrder = null;
                 _bracketPending = false;
                 _entryScore = null;
+                _entrySetup = null;
             }
         }
 
@@ -81,12 +100,13 @@ namespace AlgoOrderflow
 
             var ts = Security?.TickSize ?? 0.25m;
             _entryPrice = fillPrice;
+            var bracket = GetBracketTicksForSetup(_entrySetup);
             _slPrice = NormalizeToTick(_tradeIsLong
-                ? fillPrice - SLTicks * ts
-                : fillPrice + SLTicks * ts, ts);
+                ? fillPrice - bracket.sl * ts
+                : fillPrice + bracket.sl * ts, ts);
             _tpPrice = NormalizeToTick(_tradeIsLong
-                ? fillPrice + TPTicks * ts
-                : fillPrice - TPTicks * ts, ts);
+                ? fillPrice + bracket.tp * ts
+                : fillPrice - bracket.tp * ts, ts);
 
             // Garde-fous : SL/TP du bon côté du fill
             if (_tradeIsLong && (_slPrice >= fillPrice || _tpPrice <= fillPrice))
@@ -118,7 +138,8 @@ namespace AlgoOrderflow
                 slPrice: _slPrice,
                 tpPrice: _tpPrice,
                 slippageTicks: 0m,
-                score: _entryScore);
+                score: _entryScore,
+                setup: _entrySetup);
         }
 
         /// <summary>Quand la position passe à 0, on conclut le trade et on journalise.</summary>
@@ -127,7 +148,6 @@ namespace AlgoOrderflow
             if (BacktestMode) return;
             if (_tradeState == TradeState.None) return;
 
-            decimal exitPrice = AveragePrice > 0m ? AveragePrice : _entryPrice;
             TradeExitKind kind = TradeExitKind.ManualClose;
 
             // Heuristique : si SL filled → StopLoss, si TP filled → TakeProfit.
@@ -135,6 +155,10 @@ namespace AlgoOrderflow
                 kind = TradeExitKind.StopLoss;
             else if (_tpOrder != null && _tpOrder.State == OrderStates.Done)
                 kind = TradeExitKind.TakeProfit;
+
+            // À position plate, AveragePrice ATAS renvoie souvent le prix d'entrée → PnL=0.
+            // On prend le prix du bracket rempli (SL/TP) ou le fill de l'ordre de sortie.
+            decimal exitPrice = ResolveLiveExitPrice(kind);
 
             CancelLiveBracketOrders();
 
@@ -164,6 +188,7 @@ namespace AlgoOrderflow
             _tpOrder = null;
             _bracketPending = false;
             _entryScore = null;
+            _entrySetup = null;
             _maeRunning = 0m;
             _mfeRunning = 0m;
         }
@@ -247,6 +272,44 @@ namespace AlgoOrderflow
         {
             if (ts <= 0m) return price;
             return Math.Round(price / ts, MidpointRounding.AwayFromZero) * ts;
+        }
+
+        /// <summary>
+        /// Prix de sortie live : bracket SL/TP, sinon fill ordre, sinon AveragePrice.
+        /// </summary>
+        private decimal ResolveLiveExitPrice(TradeExitKind kind)
+        {
+            if (kind == TradeExitKind.StopLoss)
+            {
+                var fromOrder = TryGetOrderFillPrice(_slOrder);
+                if (fromOrder > 0m) return fromOrder;
+                if (_slPrice > 0m) return _slPrice;
+            }
+            else if (kind == TradeExitKind.TakeProfit)
+            {
+                var fromOrder = TryGetOrderFillPrice(_tpOrder);
+                if (fromOrder > 0m) return fromOrder;
+                if (_tpPrice > 0m) return _tpPrice;
+            }
+
+            var exitOrder = _slOrder?.State == OrderStates.Done ? _slOrder
+                : _tpOrder?.State == OrderStates.Done ? _tpOrder
+                : null;
+            var fill = TryGetOrderFillPrice(exitOrder);
+            if (fill > 0m) return fill;
+
+            if (AveragePrice > 0m && AveragePrice != _entryPrice)
+                return AveragePrice;
+
+            return _entryPrice;
+        }
+
+        private static decimal TryGetOrderFillPrice(Order order)
+        {
+            if (order == null) return 0m;
+            if (order.Price > 0m) return order.Price;
+            if (order.TriggerPrice > 0m) return order.TriggerPrice;
+            return 0m;
         }
     }
 }

@@ -51,6 +51,36 @@ namespace AlgoOrderflow
                 "ONL", Color.FromArgb(220, 255, 140, 0), dashed: true);
 
             RenderVwapTrail(context, firstVisible, lastVisible, fLbl);
+
+            if (_ctx.HasRthOpen)
+                RenderHorizontalLevel(context, firstVisible, lastVisible, rightX, fLbl,
+                    _ctx.RthOpen, "Open", Color.FromArgb(200, 180, 180, 255), dashed: true);
+
+            if (_ctx.HasSdBands)
+            {
+                RenderHorizontalLevel(context, firstVisible, lastVisible, rightX, fLbl,
+                    _ctx.SdPlus1, "SD+1", Color.FromArgb(180, 160, 160, 160), dashed: true);
+                RenderHorizontalLevel(context, firstVisible, lastVisible, rightX, fLbl,
+                    _ctx.SdMinus1, "SD-1", Color.FromArgb(180, 160, 160, 160), dashed: true);
+                RenderHorizontalLevel(context, firstVisible, lastVisible, rightX, fLbl,
+                    _ctx.SdPlus2, "SD+2", Color.FromArgb(160, 120, 120, 120), dashed: true);
+                RenderHorizontalLevel(context, firstVisible, lastVisible, rightX, fLbl,
+                    _ctx.SdMinus2, "SD-2", Color.FromArgb(160, 120, 120, 120), dashed: true);
+            }
+        }
+
+        private void RenderHorizontalLevel(RenderContext context, int firstVisible, int lastVisible,
+            int rightX, RenderFont fLbl, decimal price, string label, Color color, bool dashed)
+        {
+            int y = ChartInfo.GetYByPrice(price);
+            if (y <= 0) return;
+            int x1 = ChartInfo.GetXByBar(Math.Max(firstVisible, 0));
+            int x2 = rightX;
+            if (x1 < 0) x1 = 0;
+            var pen = new RenderPen(color, 1);
+            if (dashed) pen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dot;
+            context.DrawLine(pen, x1, y, x2, y);
+            context.DrawString($"{label} {price:F2}", fLbl, color, x2 - 64, y - 12);
         }
 
         private void RenderLevelSegments(RenderContext context, System.Collections.Generic.IReadOnlyList<ContextLevelSegment> segments,
@@ -186,7 +216,7 @@ namespace AlgoOrderflow
 
             int diagRows = 9;
             int btRows = BacktestMode ? 6 : 0;
-            int totalRows = 18 + diagRows + btRows + Math.Min(4, _logIdx);
+            int totalRows = 21 + diagRows + btRows + Math.Min(4, _logIdx);
             int h = lh * totalRows + pad * 2;
 
             context.FillRectangle(Color.FromArgb(230, 10, 10, 20), new Rectangle(x, y, w, h));
@@ -194,9 +224,20 @@ namespace AlgoOrderflow
             context.FillRectangle(Color.FromArgb(255, 30, 30, 75), new Rectangle(x, y, w, lh + 4));
 
             int tx = x + pad, ty = y + pad;
-            context.DrawString("FAILED AUCTION REVERSAL — ES", fL, Color.Gold, tx, ty);
+            string engineLbl = UseLegacyEngine ? "LEGACY"
+                : EnableAbsorptionEngine && EnableBreakoutEngine ? "ABSO+BREAK"
+                : EnableBreakoutEngine ? "BREAKOUT"
+                : "ABSORPTION";
+            context.DrawString($"ALGO ORDERFLOW — ES [{engineLbl}]", fL, Color.Gold, tx, ty);
             ty += lh + 6;
             Sep(context, tx, ty, x + w - pad); ty += 5;
+
+            Row(context, fN, tx, valX, ref ty, lh, "Absorption:",
+                EnableAbsorptionEngine ? "ARMÉ" : "OFF",
+                EnableAbsorptionEngine ? Color.LimeGreen : Color.Gray);
+            Row(context, fN, tx, valX, ref ty, lh, "Breakout:",
+                EnableBreakoutEngine ? "ARMÉ" : "OFF",
+                EnableBreakoutEngine ? Color.LimeGreen : Color.Gray);
 
             bool ok = Portfolio != null && Security != null;
             Row(context, fN, tx, valX, ref ty, lh, "Connexion:", ok ? "ACTIVE" : "INACTIVE",
@@ -221,6 +262,15 @@ namespace AlgoOrderflow
             Row(context, fN, tx, valX, ref ty, lh, "RTH VWAP:",
                 _ctx.HasRthVwap ? _ctx.RthVwap.ToString("F2") : "--",
                 _ctx.HasRthVwap ? Color.LightSteelBlue : Color.Gray);
+            Row(context, fN, tx, valX, ref ty, lh, "Open RTH:",
+                _ctx.HasRthOpen ? _ctx.RthOpen.ToString("F2") : "--",
+                _ctx.HasRthOpen ? Color.LightSteelBlue : Color.Gray);
+            Row(context, fN, tx, valX, ref ty, lh, "Regime VWAP:",
+                _ctx.VwapRegime.ToString(),
+                _ctx.VwapRegime == VwapRegime.Range ? Color.Yellow : Color.LimeGreen);
+            Row(context, fN, tx, valX, ref ty, lh, "Pente VWAP:",
+                _ctx.HasRthVwap ? $"{_ctx.VwapSlopeTicksPerBar:F2} t/bar" : "--",
+                Color.LightGray);
             Row(context, fN, tx, valX, ref ty, lh, "Bar speed (s/bar):",
                 _ctx.BarFormationSecondsAvg > 0 ? _ctx.BarFormationSecondsAvg.ToString("F1") : "--",
                 Color.Gray);

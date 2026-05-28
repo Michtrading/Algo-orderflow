@@ -1,15 +1,12 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using AlgoOrderflow.Models;
 
 namespace AlgoOrderflow
 {
-    /// <summary>
-    /// Couche Log + Journal — buffer circulaire en mémoire pour le dashboard,
-    /// + journal CSV append-only par jour pour l'analyse post-session (doc § DATA STORAGE).
-    /// </summary>
     public partial class FailedAuctionReversalStrategy
     {
         private const int LogBufferSize = 5;
@@ -19,6 +16,11 @@ namespace AlgoOrderflow
 
         private string _logFilePath;
         private string _journalFilePath;
+
+        private const string JournalHeaderV3 =
+            "timestamp_utc;trade_id;mode;side;entry_bar;exit_bar;entry_price;sl_price;tp_price;exit_price;exit_kind;pnl_ticks;pnl_usd;slippage_ticks;mae;mfe;score_total;score_components;" +
+            "signal_open;signal_high;signal_low;signal_close;signal_delta;signal_volume;vol_ratio;rth_open;rth_vwap;dist_vwap_ticks;above_vwap;vwap_slope_ticks;vwap_regime;" +
+            "sd_p1;sd_m1;sd_p2;sd_m2;nearest_level;dist_nearest_ticks;trade_mode;flag_divergence;flag_absorption;flag_vol_surge;flag_in_zone;poc_price;legacy_engine;break_trigger;break_ref_price";
 
         private void ResetLogState()
         {
@@ -66,9 +68,29 @@ namespace AlgoOrderflow
 
         private void EnsureJournalHeader(string path)
         {
-            if (File.Exists(path)) return;
-            const string header = "timestamp_utc;trade_id;mode;side;entry_bar;exit_bar;entry_price;sl_price;tp_price;exit_price;exit_kind;pnl_ticks;pnl_usd;slippage_ticks;mae;mfe;score_total;score_components";
-            File.WriteAllText(path, header + Environment.NewLine, new UTF8Encoding(false));
+            if (!File.Exists(path))
+            {
+                File.WriteAllText(path, JournalHeaderV3 + Environment.NewLine, new UTF8Encoding(false));
+                return;
+            }
+
+            try
+            {
+                string firstLine = File.ReadLines(path).FirstOrDefault() ?? "";
+                if (firstLine.Contains("break_trigger"))
+                    return;
+
+                string backup = path.Replace(".csv", firstLine.Contains("trade_mode") ? "_pre_v3.csv" : "_pre_v2.csv");
+                if (File.Exists(backup))
+                    File.Delete(backup);
+                File.Move(path, backup);
+                File.WriteAllText(path, JournalHeaderV3 + Environment.NewLine, new UTF8Encoding(false));
+                AddLog($"Journal migré vers v3 (backup: {Path.GetFileName(backup)})");
+            }
+            catch
+            {
+                File.WriteAllText(path, JournalHeaderV3 + Environment.NewLine, new UTF8Encoding(false));
+            }
         }
 
         internal void AddLog(string message)
@@ -88,8 +110,11 @@ namespace AlgoOrderflow
             }
             catch { }
 
-            try { RaiseShowNotification(message, level: Utils.Common.Logging.LoggingLevel.Info); }
-            catch { }
+            if (!BacktestMode)
+            {
+                try { RaiseShowNotification(message, level: Utils.Common.Logging.LoggingLevel.Info); }
+                catch { }
+            }
         }
 
         internal int NextTradeId() => ++_tradeIdSeq;
@@ -103,6 +128,11 @@ namespace AlgoOrderflow
                 if (string.IsNullOrEmpty(p)) return;
 
                 var inv = CultureInfo.InvariantCulture;
+                bool legacyRow = rec.Setup == null && rec.Score != null;
+                string ext = rec.Setup != null
+                    ? rec.Setup.ToJournalExtension(false)
+                    : EmptyJournalExtension(legacyRow);
+
                 string line = string.Join(";", new[]
                 {
                     rec.EntryTimeUtc.ToString("o", inv),
@@ -122,11 +152,23 @@ namespace AlgoOrderflow
                     rec.Mae.ToString("F2", inv),
                     rec.Mfe.ToString("F2", inv),
                     rec.Score?.Total.ToString("F2", inv) ?? "0.00",
-                    rec.Score?.ToCsvComponents() ?? ""
+                    rec.Score?.ToCsvComponents() ?? "0.00;0.00;0.00;0.00",
+                    ext
                 });
                 File.AppendAllText(p, line + Environment.NewLine, new UTF8Encoding(false));
             }
             catch { }
+        }
+
+        private static string EmptyJournalExtension(bool legacyEngine)
+        {
+            var parts = new string[28];
+            for (int i = 0; i < 25; i++) parts[i] = "0";
+            parts[17] = "";
+            parts[25] = legacyEngine ? "1" : "0";
+            parts[26] = "";
+            parts[27] = "0";
+            return string.Join(";", parts);
         }
     }
 }

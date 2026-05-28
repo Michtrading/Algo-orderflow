@@ -13,7 +13,6 @@ namespace AlgoOrderflow
     {
         /// <summary>Source unique des trades pour le rendu (live + backtest). Discriminés via TradeRecord.IsBacktest.</summary>
         private readonly List<TradeRecord> _visualTrades = new List<TradeRecord>();
-        private int _visualTradeIdNext;
 
         // Stats backtest (rendu rapide dans le dashboard sans recalcul)
         private int _btClosed;
@@ -27,7 +26,6 @@ namespace AlgoOrderflow
         private void ResetBacktestState()
         {
             _visualTrades.Clear();
-            _visualTradeIdNext = 0;
             _btClosed = _btTakeProfit = _btStopLoss = _btEntries = 0;
             _btPnlTicks = 0m;
         }
@@ -85,7 +83,7 @@ namespace AlgoOrderflow
         }
 
         /// <summary>Crée l'entrée simulée et pose immédiatement SL/TP (pas de pending puisque MKT).</summary>
-        private void EnterTradeBacktest(int barNow, int evalBar, decimal ts, ScoreSnapshot score)
+        private void EnterTradeBacktest(int barNow, int evalBar, decimal ts, ScoreSnapshot score, SetupSnapshot setup)
         {
             IndicatorCandle src;
             try { src = GetCandle(evalBar); }
@@ -99,12 +97,13 @@ namespace AlgoOrderflow
             fillPrice = NormalizeToTick(fillPrice, ts);
 
             _entryPrice = fillPrice;
+            var bracket = GetBracketTicksForSetup(setup);
             _slPrice = NormalizeToTick(_tradeIsLong
-                ? fillPrice - SLTicks * ts
-                : fillPrice + SLTicks * ts, ts);
+                ? fillPrice - bracket.sl * ts
+                : fillPrice + bracket.sl * ts, ts);
             _tpPrice = NormalizeToTick(_tradeIsLong
-                ? fillPrice + TPTicks * ts
-                : fillPrice - TPTicks * ts, ts);
+                ? fillPrice + bracket.tp * ts
+                : fillPrice - bracket.tp * ts, ts);
 
             _tradeState = TradeState.InTrade;
             _btEntries++;
@@ -118,10 +117,16 @@ namespace AlgoOrderflow
                 slPrice: _slPrice,
                 tpPrice: _tpPrice,
                 slippageTicks: slipTicks,
-                score: score);
+                score: score,
+                setup: setup);
 
-            AddLog($"BT ENTRY {(_tradeIsLong ? "BUY" : "SELL")} @ {fillPrice:F2} " +
-                   $"sl={_slPrice:F2} tp={_tpPrice:F2} score={score.Total:F2}");
+            if (setup != null)
+                AddLog($"BT ENTRY {(_tradeIsLong ? "BUY" : "SELL")} @ {fillPrice:F2} " +
+                       $"sl={_slPrice:F2} tp={_tpPrice:F2} mode={setup.TradeMode} " +
+                       $"trigger={setup.BreakTrigger ?? "-"} vol={setup.VolRatio:F2}");
+            else
+                AddLog($"BT ENTRY {(_tradeIsLong ? "BUY" : "SELL")} @ {fillPrice:F2} " +
+                       $"sl={_slPrice:F2} tp={_tpPrice:F2} score={score?.Total:F2}");
         }
 
         private void CloseTradeBacktest(TradeExitKind kind, decimal exitPrice, int evalBar, decimal ts)
@@ -152,6 +157,7 @@ namespace AlgoOrderflow
 
             _tradeState = TradeState.None;
             _entryScore = null;
+            _entrySetup = null;
             _maeRunning = 0m;
             _mfeRunning = 0m;
         }
@@ -166,11 +172,11 @@ namespace AlgoOrderflow
 
         private TradeRecord RegisterVisualTradeEntry(bool isBacktest, int barNow, DateTime entryTimeUtc,
             bool isLong, decimal fillPrice, decimal slPrice, decimal tpPrice,
-            decimal slippageTicks, ScoreSnapshot score)
+            decimal slippageTicks, ScoreSnapshot score, SetupSnapshot setup)
         {
             var rec = new TradeRecord
             {
-                Id = ++_visualTradeIdNext,
+                Id = NextTradeId(),
                 EntryTimeUtc = entryTimeUtc,
                 EntryBar = barNow,
                 ExitBar = -1,
@@ -181,6 +187,7 @@ namespace AlgoOrderflow
                 ExitKind = TradeExitKind.Open,
                 SlippageTicks = slippageTicks,
                 Score = score,
+                Setup = setup,
                 IsBacktest = isBacktest
             };
             _visualTrades.Add(rec);

@@ -6,7 +6,210 @@ namespace AlgoOrderflow
 {
     public partial class FailedAuctionReversalStrategy
     {
-        // ── Détection (cœur de l'edge) ──────────────────────────────────
+        // ── Moteur v2 ───────────────────────────────────────────────────
+
+        [Display(Name = "Moteur legacy (ancien scoring)", GroupName = "Moteur", Order = 0,
+            Description = "OFF = divergence + absorption + régime VWAP (v2). ON = ancien failed auction mono-bougie.")]
+        [Parameter]
+        public bool UseLegacyEngine
+        {
+            get => _useLegacyEngine;
+            set => SetTradingParam(ref _useLegacyEngine, value);
+        }
+
+        [Display(Name = "Moteur absorption (v2)", GroupName = "Moteur", Order = 1,
+            Description = "Divergence + absorption VPOC + zones VWAP/SD.")]
+        [Parameter]
+        public bool EnableAbsorptionEngine
+        {
+            get => _enableAbsorptionEngine;
+            set => SetTradingParam(ref _enableAbsorptionEngine, value);
+        }
+
+        [Display(Name = "Moteur breakout structurel", GroupName = "Moteur", Order = 2,
+            Description = "Initiation order flow : swing / max ask-bid, trend VWAP requis.")]
+        [Parameter]
+        public bool EnableBreakoutEngine
+        {
+            get => _enableBreakoutEngine;
+            set => SetTradingParam(ref _enableBreakoutEngine, value);
+        }
+
+        // ── Setup v2 ────────────────────────────────────────────────────
+
+        [Display(Name = "Lookback volume (bougies)", GroupName = "Setup", Order = 1,
+            Description = "Moyenne volume sur les N bougies avant le signal.")]
+        [Parameter]
+        public int VolLookbackBars
+        {
+            get => _volLookbackBars;
+            set => SetTradingParam(ref _volLookbackBars, value);
+        }
+
+        [Display(Name = "Ratio volume min", GroupName = "Setup", Order = 2,
+            Description = "Volume signal / moyenne >= ratio (ex. 1.5, idéal ~2).")]
+        [Parameter]
+        public decimal VolRatioMin
+        {
+            get => _volRatioMin;
+            set => SetTradingParam(ref _volRatioMin, value);
+        }
+
+        [Display(Name = "Delta min (abs)", GroupName = "Setup", Order = 3,
+            Description = "|delta| minimum pour divergence ou alignement trend.")]
+        [Parameter]
+        public decimal DeltaMinAbs
+        {
+            get => _deltaMinAbs;
+            set => SetTradingParam(ref _deltaMinAbs, value);
+        }
+
+        [Display(Name = "VPOC extrémité (ratio)", GroupName = "Setup", Order = 4,
+            Description = "POC dans le tiers haut/bas de la bougie (0.65 = 65% du range).")]
+        [Parameter]
+        public decimal VpocExtremeRatio
+        {
+            get => _vpocExtremeRatio;
+            set => SetTradingParam(ref _vpocExtremeRatio, value);
+        }
+
+        [Display(Name = "Zone proximité (ticks)", GroupName = "Setup", Order = 5,
+            Description = "Distance max au niveau (VWAP, SD, ONH/ONL) pour valider le setup.")]
+        [Parameter]
+        public int ZoneProximityTicks
+        {
+            get => _zoneProximityTicks;
+            set => SetTradingParam(ref _zoneProximityTicks, value);
+        }
+
+        // ── Régime ──────────────────────────────────────────────────────
+
+        [Display(Name = "Pente VWAP lookback (barres)", GroupName = "Regime", Order = 10)]
+        [Parameter]
+        public int VwapSlopeLookback
+        {
+            get => _vwapSlopeLookback;
+            set => SetTradingParam(ref _vwapSlopeLookback, value);
+        }
+
+        [Display(Name = "Pente VWAP trend (ticks/bar)", GroupName = "Regime", Order = 11)]
+        [Parameter]
+        public decimal VwapSlopeTrendThreshold
+        {
+            get => _vwapSlopeTrendThreshold;
+            set => SetTradingParam(ref _vwapSlopeTrendThreshold, value);
+        }
+
+        [Display(Name = "Veto auction Open (ticks)", GroupName = "Regime", Order = 12,
+            Description = "VWAP range + proche Open RTH => pas de trade sauf SD±2.")]
+        [Parameter]
+        public int AuctionOpenRangeTicks
+        {
+            get => _auctionOpenRangeTicks;
+            set => SetTradingParam(ref _auctionOpenRangeTicks, value);
+        }
+
+        [Display(Name = "SD multiplicateur ±1", GroupName = "Regime", Order = 13)]
+        [Parameter]
+        public decimal SdMultiplier1
+        {
+            get => _sdMultiplier1;
+            set => SetTradingParam(ref _sdMultiplier1, value);
+        }
+
+        [Display(Name = "SD multiplicateur ±2", GroupName = "Regime", Order = 14)]
+        [Parameter]
+        public decimal SdMultiplier2
+        {
+            get => _sdMultiplier2;
+            set => SetTradingParam(ref _sdMultiplier2, value);
+        }
+
+        // ── Breakout ────────────────────────────────────────────────────
+
+        [Display(Name = "Swing lookback (barres)", GroupName = "Breakout", Order = 20)]
+        [Parameter]
+        public int BreakSwingLookbackBars
+        {
+            get => _breakSwingLookbackBars;
+            set => SetTradingParam(ref _breakSwingLookbackBars, value);
+        }
+
+        [Display(Name = "Volume node lookback (barres)", GroupName = "Breakout", Order = 21,
+            Description = "Barres précédentes scannées pour MaxAsk (long) / MaxBid (short).")]
+        [Parameter]
+        public int BreakVolumeLookbackBars
+        {
+            get => _breakVolumeLookbackBars;
+            set => SetTradingParam(ref _breakVolumeLookbackBars, value);
+        }
+
+        [Display(Name = "Ratio volume min", GroupName = "Breakout", Order = 22)]
+        [Parameter]
+        public decimal BreakVolRatioMin
+        {
+            get => _breakVolRatioMin;
+            set => SetTradingParam(ref _breakVolRatioMin, value);
+        }
+
+        [Display(Name = "Delta min (abs)", GroupName = "Breakout", Order = 23)]
+        [Parameter]
+        public decimal BreakDeltaMinAbs
+        {
+            get => _breakDeltaMinAbs;
+            set => SetTradingParam(ref _breakDeltaMinAbs, value);
+        }
+
+        [Display(Name = "Vélocité max (ratio vs moyenne)", GroupName = "Breakout", Order = 24,
+            Description = "Durée barre <= ratio × moyenne session (ex. 0.65 = 35% plus rapide).")]
+        [Parameter]
+        public decimal BreakVelocityMaxRatio
+        {
+            get => _breakVelocityMaxRatio;
+            set => SetTradingParam(ref _breakVelocityMaxRatio, value);
+        }
+
+        [Display(Name = "Acceptance (top/bottom ratio)", GroupName = "Breakout", Order = 25)]
+        [Parameter]
+        public decimal BreakAcceptanceTopRatio
+        {
+            get => _breakAcceptanceTopRatio;
+            set => SetTradingParam(ref _breakAcceptanceTopRatio, value);
+        }
+
+        [Display(Name = "Trigger swing H/L", GroupName = "Breakout", Order = 26)]
+        [Parameter]
+        public bool BreakUseSwing
+        {
+            get => _breakUseSwing;
+            set => SetTradingParam(ref _breakUseSwing, value);
+        }
+
+        [Display(Name = "Trigger max ask/bid", GroupName = "Breakout", Order = 27)]
+        [Parameter]
+        public bool BreakUseVolumeNode
+        {
+            get => _breakUseVolumeNode;
+            set => SetTradingParam(ref _breakUseVolumeNode, value);
+        }
+
+        [Display(Name = "Stop Loss (ticks)", GroupName = "Breakout", Order = 28)]
+        [Parameter]
+        public int BreakSlTicks
+        {
+            get => _breakSlTicks;
+            set => SetTradingParam(ref _breakSlTicks, value);
+        }
+
+        [Display(Name = "Take Profit (ticks)", GroupName = "Breakout", Order = 29)]
+        [Parameter]
+        public int BreakTpTicks
+        {
+            get => _breakTpTicks;
+            set => SetTradingParam(ref _breakTpTicks, value);
+        }
+
+        // ── Détection legacy ────────────────────────────────────────────
 
         [Display(Name = "Seuil efficacité (ticks/unité)", GroupName = "Detection", Order = 1,
             Description = "Une bougie est inefficace si |close-open|_ticks / max(volume, |delta|) <= seuil.")]
