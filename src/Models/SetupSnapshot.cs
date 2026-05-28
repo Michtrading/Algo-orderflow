@@ -42,6 +42,13 @@ namespace AlgoOrderflow.Models
         /// <summary>Déclencheur micro (ex. swing_high_5, max_ask_1).</summary>
         public string BreakTrigger { get; set; }
         public decimal BreakRefPrice { get; set; }
+        public decimal BreakRefDelta { get; set; }
+        public decimal MaxAskPrice { get; set; }
+        public decimal MaxBidPrice { get; set; }
+        public decimal Top1AskRatio { get; set; }
+        public decimal Top2AskRatio { get; set; }
+        public decimal Top1BidRatio { get; set; }
+        public decimal Top2BidRatio { get; set; }
 
         public string ToJournalExtension(bool legacyEngine)
         {
@@ -75,7 +82,14 @@ namespace AlgoOrderflow.Models
                 PocPrice.ToString("F2", inv),
                 legacyEngine ? "1" : "0",
                 BreakTrigger ?? "",
-                BreakRefPrice.ToString("F2", inv)
+                BreakRefPrice.ToString("F2", inv),
+                BreakRefDelta.ToString("F2", inv),
+                MaxAskPrice.ToString("F2", inv),
+                MaxBidPrice.ToString("F2", inv),
+                Top1AskRatio.ToString("F4", inv),
+                Top2AskRatio.ToString("F4", inv),
+                Top1BidRatio.ToString("F4", inv),
+                Top2BidRatio.ToString("F4", inv)
             });
         }
     }

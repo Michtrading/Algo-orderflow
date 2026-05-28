@@ -125,6 +125,15 @@ namespace AlgoOrderflow
             set => SetTradingParam(ref _sdMultiplier2, value);
         }
 
+        [Display(Name = "Autoriser MR short contre TrendUp", GroupName = "Regime", Order = 15,
+            Description = "OFF recommandé: bloque les shorts mean-revert en TrendUp hors extrême SD+2.")]
+        [Parameter]
+        public bool AllowCounterTrendShortMeanRevert
+        {
+            get => _allowCounterTrendShortMeanRevert;
+            set => SetTradingParam(ref _allowCounterTrendShortMeanRevert, value);
+        }
+
         // ── Breakout ────────────────────────────────────────────────────
 
         [Display(Name = "Swing lookback (barres)", GroupName = "Breakout", Order = 20)]
@@ -177,7 +186,43 @@ namespace AlgoOrderflow
             set => SetTradingParam(ref _breakAcceptanceTopRatio, value);
         }
 
-        [Display(Name = "Trigger swing H/L", GroupName = "Breakout", Order = 26)]
+        [Display(Name = "Confirmation cassure (ticks)", GroupName = "Breakout", Order = 26,
+            Description = "Close au-delà du niveau de référence d'au moins X ticks.")]
+        [Parameter]
+        public int BreakConfirmTicks
+        {
+            get => _breakConfirmTicks;
+            set => SetTradingParam(ref _breakConfirmTicks, value);
+        }
+
+        [Display(Name = "Filtre concentration top1/top2", GroupName = "Breakout", Order = 27,
+            Description = "Exige une concentration du volume agressif sur 1-2 niveaux de prix.")]
+        [Parameter]
+        public bool BreakUseConcentrationFilter
+        {
+            get => _breakUseConcentrationFilter;
+            set => SetTradingParam(ref _breakUseConcentrationFilter, value);
+        }
+
+        [Display(Name = "Concentration top1 min", GroupName = "Breakout", Order = 28,
+            Description = "Part minimale du volume ask (long) ou bid (short) sur le niveau principal.")]
+        [Parameter]
+        public decimal BreakConcentrationTop1Min
+        {
+            get => _breakConcentrationTop1Min;
+            set => SetTradingParam(ref _breakConcentrationTop1Min, value);
+        }
+
+        [Display(Name = "Concentration top2 min", GroupName = "Breakout", Order = 29,
+            Description = "Part minimale cumulée des 2 premiers niveaux ask/bid.")]
+        [Parameter]
+        public decimal BreakConcentrationTop2Min
+        {
+            get => _breakConcentrationTop2Min;
+            set => SetTradingParam(ref _breakConcentrationTop2Min, value);
+        }
+
+        [Display(Name = "Trigger swing H/L", GroupName = "Breakout", Order = 30)]
         [Parameter]
         public bool BreakUseSwing
         {
@@ -185,7 +230,7 @@ namespace AlgoOrderflow
             set => SetTradingParam(ref _breakUseSwing, value);
         }
 
-        [Display(Name = "Trigger max ask/bid", GroupName = "Breakout", Order = 27)]
+        [Display(Name = "Trigger max ask/bid", GroupName = "Breakout", Order = 31)]
         [Parameter]
         public bool BreakUseVolumeNode
         {
@@ -193,7 +238,7 @@ namespace AlgoOrderflow
             set => SetTradingParam(ref _breakUseVolumeNode, value);
         }
 
-        [Display(Name = "Stop Loss (ticks)", GroupName = "Breakout", Order = 28)]
+        [Display(Name = "Stop Loss (ticks)", GroupName = "Breakout", Order = 32)]
         [Parameter]
         public int BreakSlTicks
         {
@@ -201,7 +246,7 @@ namespace AlgoOrderflow
             set => SetTradingParam(ref _breakSlTicks, value);
         }
 
-        [Display(Name = "Take Profit (ticks)", GroupName = "Breakout", Order = 29)]
+        [Display(Name = "Take Profit (ticks)", GroupName = "Breakout", Order = 33)]
         [Parameter]
         public int BreakTpTicks
         {

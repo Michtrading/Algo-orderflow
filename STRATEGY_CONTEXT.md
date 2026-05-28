@@ -33,6 +33,22 @@
 - [ ] MEAN_REVERT performe-t-il mieux en range vs en tendance légère ?
 - [ ] Le volume surge (ratio ≥ 1.5) filtre-t-il réellement les faux signaux ?
 
+## Journal de recherche (2026-05-28)
+
+- Breakout sous-performe sur session replay (n faible, vetos dominants: volume/delta/acceptance/trend).
+- Débug ajouté côté logs: `BREAKOUT VETO <reason>` pour attribution causale des non-entrées.
+- Ajustement v1.2 des defaults breakout pour réduire la sur-filtration:
+  - `BreakVolumeLookbackBars=3`
+  - `BreakVolRatioMin=1.3`
+  - `BreakDeltaMinAbs=35`
+  - `BreakVelocityMaxRatio=0.90`
+  - `BreakAcceptanceTopRatio=0.70`
+  - `BreakConfirmTicks=0`
+  - `BreakUseConcentrationFilter=false` (concentration top1/top2 disponible en option)
+- Correction context replay: reconstruction de `RthOpen` et `PriorDayClose/High/Low` depuis l'historique chargé pour éviter les décalages si le replay démarre après 9:30 NY.
+- Ajustement mean-revert: blocage des `SHORT` contrarians en `TrendUp` hors extrême `SD+2` (`AllowCounterTrendShortMeanRevert=false` par défaut).
+- Logs de veto détaillés activés aussi côté absorption: `ABSORPTION VETO <reason>`.
+
 ## Protocole de test pour une nouvelle condition
 
 1. **Hypothèse** : formuler en 1 phrase ce que la condition teste

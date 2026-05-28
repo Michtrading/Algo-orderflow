@@ -70,13 +70,18 @@ namespace AlgoOrderflow
         private int _auctionOpenRangeTicks = 12;
         private decimal _sdMultiplier1 = 1m;
         private decimal _sdMultiplier2 = 2m;
+        private bool _allowCounterTrendShortMeanRevert;
 
         private int _breakSwingLookbackBars = 5;
-        private int _breakVolumeLookbackBars = 1;
-        private decimal _breakVolRatioMin = 1.5m;
-        private decimal _breakDeltaMinAbs = 50m;
-        private decimal _breakVelocityMaxRatio = 0.65m;
-        private decimal _breakAcceptanceTopRatio = 0.75m;
+        private int _breakVolumeLookbackBars = 3;
+        private decimal _breakVolRatioMin = 1.3m;
+        private decimal _breakDeltaMinAbs = 35m;
+        private decimal _breakVelocityMaxRatio = 0.90m;
+        private decimal _breakAcceptanceTopRatio = 0.70m;
+        private int _breakConfirmTicks = 0;
+        private bool _breakUseConcentrationFilter;
+        private decimal _breakConcentrationTop1Min = 0.30m;
+        private decimal _breakConcentrationTop2Min = 0.50m;
         private bool _breakUseSwing = true;
         private bool _breakUseVolumeNode = true;
         private int _breakSlTicks = 9;
@@ -313,14 +318,24 @@ namespace AlgoOrderflow
             {
                 setup = EvaluateBreakoutSetup(evalBar, ts);
                 if (setup != null && !string.IsNullOrEmpty(setup.VetoReason))
+                {
+                    if (setup.VetoReason.StartsWith("breakout_", StringComparison.Ordinal)
+                        && setup.VetoReason != _lastVetoReason)
+                        AddLog($"BREAKOUT VETO {setup.VetoReason}");
                     _lastVetoReason = setup.VetoReason;
+                }
             }
 
             if ((setup == null || !setup.IsValid) && EnableAbsorptionEngine)
             {
                 setup = EvaluateSetupV2(evalBar, ts);
                 if (setup != null && !string.IsNullOrEmpty(setup.VetoReason))
+                {
+                    if (!setup.VetoReason.StartsWith("breakout_", StringComparison.Ordinal)
+                        && setup.VetoReason != _lastVetoReason)
+                        AddLog($"ABSORPTION VETO {setup.VetoReason}");
                     _lastVetoReason = setup.VetoReason;
+                }
             }
 
             if (setup == null || !setup.IsValid || setup.Side == SignalSide.None)

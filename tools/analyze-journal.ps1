@@ -1,7 +1,9 @@
 param(
     [string]$Path,
     # Date ISO (yyyy-MM-dd) des trades LIVE à isoler ; vide = toutes les dates mode=LIVE
-    [string]$LiveDate = ''
+    [string]$LiveDate = '',
+    # Log texte optionnel pour verifier la coherence entre ENTRY log et journal CSV
+    [string]$LogPath = ''
 )
 
 function Import-JournalCsvRobust {
@@ -202,6 +204,83 @@ function Show-BtLiveSplit {
     }
 }
 
+function Show-LogJournalConsistency {
+    param(
+        $Rows,
+        [string]$LogFile,
+        [string]$FilterLiveDate
+    )
+
+    if ([string]::IsNullOrWhiteSpace($LogFile)) {
+        Write-Host "--- coherence log/journal : LogPath absent ---"
+        return
+    }
+    if (-not (Test-Path -Path $LogFile)) {
+        Write-Host "--- coherence log/journal : LogPath introuvable ---"
+        return
+    }
+    if ($Rows.Count -eq 0) {
+        Write-Host "--- coherence log/journal : journal vide ---"
+        return
+    }
+
+    Write-Host "--- coherence log/journal (ENTRY MKT vs CSV) ---"
+
+    $csvLive = @($Rows | Where-Object { $_.PSObject.Properties.Name -contains 'mode' -and $_.mode -eq 'LIVE' })
+    if ($FilterLiveDate) {
+        $csvLive = @($csvLive | Where-Object { $_.timestamp_utc.Substring(0, 10) -eq $FilterLiveDate })
+    }
+    elseif ($csvLive.Count -eq 0) {
+        # fallback: si mode absent/non valorise, prendre tous les rows
+        $csvLive = @($Rows)
+    }
+
+    $csvByMode = @{}
+    foreach ($g in ($csvLive | Group-Object trade_mode)) {
+        $csvByMode[$g.Name] = $g.Count
+    }
+
+    $lines = Get-Content -Path $LogFile
+    $allLogLines = $lines
+    if ($FilterLiveDate) {
+        $dateRegex = [regex]::Escape($FilterLiveDate)
+        $filteredLines = @($lines | Where-Object { $_ -match $dateRegex })
+        # Some ATAS logs contain only HH:mm:ss on each line.
+        # If date filtering yields nothing, fallback to full log.
+        if ($filteredLines.Count -gt 0) {
+            $lines = $filteredLines
+        }
+    }
+
+    $logEntries = @($lines | Where-Object { $_ -match 'ENTRY MKT .* mode=' })
+    if ($FilterLiveDate -and $logEntries.Count -eq 0) {
+        # Date-filter matched only metadata/non-entry lines: fallback to full log entries.
+        $logEntries = @($allLogLines | Where-Object { $_ -match 'ENTRY MKT .* mode=' })
+    }
+    $logByMode = @{}
+    foreach ($line in $logEntries) {
+        if ($line -match 'mode=([A-Za-z0-9_]+)') {
+            $m = $matches[1]
+            if (-not $logByMode.ContainsKey($m)) { $logByMode[$m] = 0 }
+            $logByMode[$m]++
+        }
+    }
+
+    $allModes = @($csvByMode.Keys + $logByMode.Keys | Sort-Object -Unique)
+    foreach ($mode in $allModes) {
+        $csvN = if ($csvByMode.ContainsKey($mode)) { $csvByMode[$mode] } else { 0 }
+        $logN = if ($logByMode.ContainsKey($mode)) { $logByMode[$mode] } else { 0 }
+        $delta = $logN - $csvN
+        Write-Host ("mode={0} csv={1} log={2} delta_log_minus_csv={3}" -f $mode, $csvN, $logN, $delta)
+    }
+
+    $csvBreak = if ($csvByMode.ContainsKey('Breakout')) { $csvByMode['Breakout'] } else { 0 }
+    $logBreak = if ($logByMode.ContainsKey('Breakout')) { $logByMode['Breakout'] } else { 0 }
+    if ($logBreak -gt 0 -and $csvBreak -eq 0) {
+        Write-Host "warning_breakout_mismatch: log contient des ENTRY Breakout mais CSV n'en contient aucun"
+    }
+}
+
 $rows = Import-JournalCsvRobust -CsvPath $Path
 Write-Host "total_trades $($rows.Count)"
 
@@ -216,6 +295,7 @@ Write-Host "TP $($tp.Count) SL $($sl.Count)"
 Write-Host ("win_rate {0:N2}%" -f (100.0 * $tp.Count / $rows.Count))
 
 Show-BtLiveSplit -AllRows $rows -FilterLiveDate $LiveDate
+Show-LogJournalConsistency -Rows $rows -LogFile $LogPath -FilterLiveDate $LiveDate
 
 function Show-Stats($sub, $label) {
     if ($sub.Count -eq 0) { return }

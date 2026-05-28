@@ -152,6 +152,70 @@ namespace AlgoOrderflow
             _ctx.HasPriorDay = true;
         }
 
+        private bool TryResolveRthOpenFromHistory(DateTime nyDate, int rthStartMins, int rthEndMins, int bar, out decimal open)
+        {
+            open = 0m;
+            bool found = false;
+
+            for (int i = bar; i >= 0; i--)
+            {
+                try
+                {
+                    var ci = GetCandle(i);
+                    if (ci == null) continue;
+                    var ny = ToNy(ci.Time);
+                    int mins = ny.Hour * 60 + ny.Minute;
+                    if (ny.Date != nyDate) continue;
+                    if (mins < rthStartMins || mins >= rthEndMins) continue;
+
+                    // Scan backward: keep overwriting to end with earliest RTH candle open.
+                    open = ci.Open;
+                    found = true;
+                }
+                catch { }
+            }
+
+            return found;
+        }
+
+        private bool TryResolvePriorDayFromHistory(DateTime nyDate, int rthStartMins, int rthEndMins, int bar,
+            out decimal high, out decimal low, out decimal close)
+        {
+            high = decimal.MinValue;
+            low = decimal.MaxValue;
+            close = 0m;
+            bool closeSet = false;
+            bool any = false;
+            var target = nyDate.AddDays(-1);
+
+            for (int i = bar; i >= 0; i--)
+            {
+                try
+                {
+                    var ci = GetCandle(i);
+                    if (ci == null) continue;
+                    var ny = ToNy(ci.Time);
+                    int mins = ny.Hour * 60 + ny.Minute;
+                    if (ny.Date != target) continue;
+                    if (mins < rthStartMins || mins >= rthEndMins) continue;
+
+                    if (!closeSet)
+                    {
+                        // First encounter while scanning backward = last close of prior RTH session.
+                        close = ci.Close;
+                        closeSet = true;
+                    }
+
+                    if (ci.High > high) high = ci.High;
+                    if (ci.Low < low) low = ci.Low;
+                    any = true;
+                }
+                catch { }
+            }
+
+            return any;
+        }
+
         private void TrackRthSessionRange(IndicatorCandle c)
         {
             if (c.High > _sessionHigh) _sessionHigh = c.High;
@@ -279,6 +343,16 @@ namespace AlgoOrderflow
             if (newSession)
             {
                 FinalizePriorDaySession();
+
+                if (TryResolvePriorDayFromHistory(nyDate, rthStartMins, rthEndMins, bar,
+                    out var pHigh, out var pLow, out var pClose))
+                {
+                    _ctx.PriorDayHigh = pHigh;
+                    _ctx.PriorDayLow = pLow;
+                    _ctx.PriorDayClose = pClose;
+                    _ctx.HasPriorDay = true;
+                }
+
                 _sessionHigh = decimal.MinValue;
                 _sessionLow = decimal.MaxValue;
                 _sessionClose = 0m;
@@ -291,7 +365,9 @@ namespace AlgoOrderflow
                 _rthDate = nyDate;
                 _ctx.HasRthVwap = false;
                 _ctx.HasSdBands = false;
-                _ctx.RthOpen = c.Open;
+                _ctx.RthOpen = TryResolveRthOpenFromHistory(nyDate, rthStartMins, rthEndMins, bar, out var resolvedOpen)
+                    ? resolvedOpen
+                    : c.Open;
                 _ctx.HasRthOpen = true;
             }
 

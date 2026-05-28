@@ -109,6 +109,11 @@ namespace AlgoOrderflow
 
             if (atResistance && p.MeanRevertShort && p.AbsorptionShort && PassesOpenFilterShortMeanRevert(c, ts))
             {
+                if (_ctx.VwapRegime == VwapRegime.TrendUp && !nearSdPlus2 && !AllowCounterTrendShortMeanRevert)
+                {
+                    snap.VetoReason = "mr_short_countertrend_veto";
+                    return false;
+                }
                 var mode = _ctx.VwapRegime == VwapRegime.TrendUp ? TradeMode.MeanRevert : TradeMode.MeanRevert;
                 return AssignSetup(snap, SignalSide.Short, mode, trend: false, divergence: true);
             }

@@ -20,7 +20,7 @@ namespace AlgoOrderflow
         private const string JournalHeaderV3 =
             "timestamp_utc;trade_id;mode;side;entry_bar;exit_bar;entry_price;sl_price;tp_price;exit_price;exit_kind;pnl_ticks;pnl_usd;slippage_ticks;mae;mfe;score_total;score_components;" +
             "signal_open;signal_high;signal_low;signal_close;signal_delta;signal_volume;vol_ratio;rth_open;rth_vwap;dist_vwap_ticks;above_vwap;vwap_slope_ticks;vwap_regime;" +
-            "sd_p1;sd_m1;sd_p2;sd_m2;nearest_level;dist_nearest_ticks;trade_mode;flag_divergence;flag_absorption;flag_vol_surge;flag_in_zone;poc_price;legacy_engine;break_trigger;break_ref_price";
+            "sd_p1;sd_m1;sd_p2;sd_m2;nearest_level;dist_nearest_ticks;trade_mode;flag_divergence;flag_absorption;flag_vol_surge;flag_in_zone;poc_price;legacy_engine;break_trigger;break_ref_price;break_ref_delta;max_ask_price;max_bid_price;top1_ask_ratio;top2_ask_ratio;top1_bid_ratio;top2_bid_ratio";
 
         private void ResetLogState()
         {
@@ -77,7 +77,7 @@ namespace AlgoOrderflow
             try
             {
                 string firstLine = File.ReadLines(path).FirstOrDefault() ?? "";
-                if (firstLine.Contains("break_trigger"))
+                if (firstLine.Contains("top2_bid_ratio"))
                     return;
 
                 string backup = path.Replace(".csv", firstLine.Contains("trade_mode") ? "_pre_v3.csv" : "_pre_v2.csv");
@@ -162,12 +162,11 @@ namespace AlgoOrderflow
 
         private static string EmptyJournalExtension(bool legacyEngine)
         {
-            var parts = new string[28];
-            for (int i = 0; i < 25; i++) parts[i] = "0";
+            var parts = new string[36];
+            for (int i = 0; i < parts.Length; i++) parts[i] = "0";
             parts[17] = "";
             parts[25] = legacyEngine ? "1" : "0";
             parts[26] = "";
-            parts[27] = "0";
             return string.Join(";", parts);
         }
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using ATAS.Indicators;
 using AlgoOrderflow.Models;
 
@@ -21,6 +22,7 @@ namespace AlgoOrderflow
             var snap = new SetupSnapshot();
             var p = EvaluateSetupPrimitives(c, evalBar);
             FillSetupSnapshotBase(snap, c, p, ts);
+            FillBreakoutFootprintStats(snap, c);
 
             if (_ctx.VwapRegime == VwapRegime.Range)
             {
@@ -28,28 +30,30 @@ namespace AlgoOrderflow
                 return snap;
             }
 
-            if (TryBuildBreakoutLong(evalBar, c, p, ts, snap))
+            if (TryBuildBreakoutLong(evalBar, c, p, ts, snap, out var longReason))
                 return FinalizeValidSetup(snap, p);
 
-            if (TryBuildBreakoutShort(evalBar, c, p, ts, snap))
+            if (TryBuildBreakoutShort(evalBar, c, p, ts, snap, out var shortReason))
                 return FinalizeValidSetup(snap, p);
 
-            snap.VetoReason = "no_breakout";
+            snap.VetoReason = shortReason ?? longReason ?? "no_breakout";
             return snap;
         }
 
-        private bool TryBuildBreakoutLong(int evalBar, IndicatorCandle c, SetupPrimitives p, decimal ts, SetupSnapshot snap)
+        private bool TryBuildBreakoutLong(int evalBar, IndicatorCandle c, SetupPrimitives p, decimal ts, SetupSnapshot snap, out string reason)
         {
-            if (_ctx.VwapRegime != VwapRegime.TrendUp) return false;
-            if (!PassesBreakoutInitiation(c, p, evalBar, ts, isLong: true)) return false;
-            if (IsAbsorptionConflict(p, isLong: true)) return false;
+            reason = null;
+            if (_ctx.VwapRegime != VwapRegime.TrendUp) { reason = "breakout_trend_not_up"; return false; }
+            if (!PassesBreakoutInitiation(c, p, evalBar, ts, isLong: true, out reason)) return false;
+            if (IsAbsorptionConflict(p, isLong: true)) { reason = "breakout_absorption_conflict_long"; return false; }
 
             decimal refPrice = 0m;
             string trigger = null;
+            decimal confirm = Math.Max(0, BreakConfirmTicks) * ts;
 
             if (BreakUseSwing && TryGetSwingHigh(evalBar, out decimal swingHigh))
             {
-                if (c.Close > swingHigh)
+                if (c.Close >= swingHigh + confirm)
                 {
                     refPrice = swingHigh;
                     trigger = $"swing_high_{BreakSwingLookbackBars}";
@@ -58,7 +62,7 @@ namespace AlgoOrderflow
 
             if (BreakUseVolumeNode && TryGetMaxAskRefPrice(evalBar, out decimal askPrice, out int askLookback))
             {
-                if (c.Close > askPrice && (refPrice <= 0m || askPrice >= refPrice))
+                if (c.Close >= askPrice + confirm && (refPrice <= 0m || askPrice >= refPrice))
                 {
                     refPrice = askPrice;
                     trigger = trigger == null
@@ -67,13 +71,14 @@ namespace AlgoOrderflow
                 }
             }
 
-            if (refPrice <= 0m || string.IsNullOrEmpty(trigger)) return false;
-            if (!PassesBreakoutAcceptance(c, isLong: true)) return false;
+            if (refPrice <= 0m || string.IsNullOrEmpty(trigger)) { reason = "breakout_long_no_trigger"; return false; }
+            if (!PassesBreakoutAcceptance(c, isLong: true, out reason)) return false;
 
             snap.Side = SignalSide.Long;
             snap.TradeMode = TradeMode.Breakout;
             snap.BreakTrigger = trigger;
             snap.BreakRefPrice = refPrice;
+            snap.BreakRefDelta = TryGetPriceLevelDelta(c, refPrice, out var dLong) ? dLong : 0m;
             snap.FlagVolSurge = p.VolSurge;
             snap.FlagTrendAlignment = true;
             snap.FlagDivergence = false;
@@ -81,18 +86,20 @@ namespace AlgoOrderflow
             return true;
         }
 
-        private bool TryBuildBreakoutShort(int evalBar, IndicatorCandle c, SetupPrimitives p, decimal ts, SetupSnapshot snap)
+        private bool TryBuildBreakoutShort(int evalBar, IndicatorCandle c, SetupPrimitives p, decimal ts, SetupSnapshot snap, out string reason)
         {
-            if (_ctx.VwapRegime != VwapRegime.TrendDown) return false;
-            if (!PassesBreakoutInitiation(c, p, evalBar, ts, isLong: false)) return false;
-            if (IsAbsorptionConflict(p, isLong: false)) return false;
+            reason = null;
+            if (_ctx.VwapRegime != VwapRegime.TrendDown) { reason = "breakout_trend_not_down"; return false; }
+            if (!PassesBreakoutInitiation(c, p, evalBar, ts, isLong: false, out reason)) return false;
+            if (IsAbsorptionConflict(p, isLong: false)) { reason = "breakout_absorption_conflict_short"; return false; }
 
             decimal refPrice = 0m;
             string trigger = null;
+            decimal confirm = Math.Max(0, BreakConfirmTicks) * ts;
 
             if (BreakUseSwing && TryGetSwingLow(evalBar, out decimal swingLow))
             {
-                if (c.Close < swingLow)
+                if (c.Close <= swingLow - confirm)
                 {
                     refPrice = swingLow;
                     trigger = $"swing_low_{BreakSwingLookbackBars}";
@@ -101,7 +108,7 @@ namespace AlgoOrderflow
 
             if (BreakUseVolumeNode && TryGetMaxBidRefPrice(evalBar, out decimal bidPrice, out int bidLookback))
             {
-                if (c.Close < bidPrice && (refPrice <= 0m || bidPrice <= refPrice))
+                if (c.Close <= bidPrice - confirm && (refPrice <= 0m || bidPrice <= refPrice))
                 {
                     refPrice = bidPrice;
                     trigger = trigger == null
@@ -110,13 +117,14 @@ namespace AlgoOrderflow
                 }
             }
 
-            if (refPrice <= 0m || string.IsNullOrEmpty(trigger)) return false;
-            if (!PassesBreakoutAcceptance(c, isLong: false)) return false;
+            if (refPrice <= 0m || string.IsNullOrEmpty(trigger)) { reason = "breakout_short_no_trigger"; return false; }
+            if (!PassesBreakoutAcceptance(c, isLong: false, out reason)) return false;
 
             snap.Side = SignalSide.Short;
             snap.TradeMode = TradeMode.Breakout;
             snap.BreakTrigger = trigger;
             snap.BreakRefPrice = refPrice;
+            snap.BreakRefDelta = TryGetPriceLevelDelta(c, refPrice, out var dShort) ? dShort : 0m;
             snap.FlagVolSurge = p.VolSurge;
             snap.FlagTrendAlignment = true;
             snap.FlagDivergence = false;
@@ -124,20 +132,21 @@ namespace AlgoOrderflow
             return true;
         }
 
-        private bool PassesBreakoutInitiation(IndicatorCandle c, SetupPrimitives p, int evalBar, decimal ts, bool isLong)
+        private bool PassesBreakoutInitiation(IndicatorCandle c, SetupPrimitives p, int evalBar, decimal ts, bool isLong, out string reason)
         {
-            if (!p.VolSurge || p.VolRatio < BreakVolRatioMin) return false;
+            reason = null;
+            if (!p.VolSurge || p.VolRatio < BreakVolRatioMin) { reason = "breakout_no_volume_surge"; return false; }
 
             if (isLong)
             {
-                if (!p.BullishBar || c.Delta < BreakDeltaMinAbs) return false;
+                if (!p.BullishBar || c.Delta < BreakDeltaMinAbs) { reason = "breakout_no_delta_align_long"; return false; }
             }
             else
             {
-                if (!p.BearishBar || c.Delta > -BreakDeltaMinAbs) return false;
+                if (!p.BearishBar || c.Delta > -BreakDeltaMinAbs) { reason = "breakout_no_delta_align_short"; return false; }
             }
 
-            if (!PassesBreakoutVelocity(evalBar, c)) return false;
+            if (!PassesBreakoutVelocity(evalBar, c)) { reason = "breakout_no_velocity"; return false; }
             return true;
         }
 
@@ -151,40 +160,144 @@ namespace AlgoOrderflow
             return duration <= BreakVelocityMaxRatio * _ctx.BarFormationSecondsAvg;
         }
 
-        private bool PassesBreakoutAcceptance(IndicatorCandle c, bool isLong)
+        private bool PassesBreakoutAcceptance(IndicatorCandle c, bool isLong, out string reason)
         {
+            reason = null;
             decimal range = c.High - c.Low;
-            if (range <= 0m) return false;
+            if (range <= 0m) { reason = "breakout_zero_range"; return false; }
 
             decimal pos = (c.Close - c.Low) / range;
             if (isLong)
             {
-                if (pos < BreakAcceptanceTopRatio) return false;
+                if (pos < BreakAcceptanceTopRatio) { reason = "breakout_long_no_acceptance"; return false; }
                 try
                 {
                     var maxAsk = c.MaxAskPriceInfo;
                     if (maxAsk != null && maxAsk.Price > 0m)
                     {
                         decimal askPos = (maxAsk.Price - c.Low) / range;
-                        if (askPos < BreakAcceptanceTopRatio) return false;
+                        if (askPos < BreakAcceptanceTopRatio) { reason = "breakout_long_no_acceptance"; return false; }
                     }
                 }
                 catch { }
+                if (!PassesBreakoutConcentration(c, isLong: true))
+                {
+                    reason = "breakout_long_no_concentration";
+                    return false;
+                }
                 return true;
             }
 
-            if (pos > (1m - BreakAcceptanceTopRatio)) return false;
+            if (pos > (1m - BreakAcceptanceTopRatio)) { reason = "breakout_short_no_acceptance"; return false; }
             try
             {
                 var maxBid = c.MaxBidPriceInfo;
                 if (maxBid != null && maxBid.Price > 0m)
                 {
                     decimal bidPos = (maxBid.Price - c.Low) / range;
-                    if (bidPos > (1m - BreakAcceptanceTopRatio)) return false;
+                    if (bidPos > (1m - BreakAcceptanceTopRatio)) { reason = "breakout_short_no_acceptance"; return false; }
                 }
             }
             catch { }
+            if (!PassesBreakoutConcentration(c, isLong: false))
+            {
+                reason = "breakout_short_no_concentration";
+                return false;
+            }
             return true;
+        }
+
+        private bool PassesBreakoutConcentration(IndicatorCandle c, bool isLong)
+        {
+            if (!BreakUseConcentrationFilter) return true;
+            if (!TryGetSideConcentration(c, isLong, out decimal top1, out decimal top2))
+                return true;
+
+            return top1 >= BreakConcentrationTop1Min && top2 >= BreakConcentrationTop2Min;
+        }
+
+        private static bool TryGetSideConcentration(IndicatorCandle c, bool isLong, out decimal top1Ratio, out decimal top2Ratio)
+        {
+            top1Ratio = 0m;
+            top2Ratio = 0m;
+
+            try
+            {
+                var levels = c.GetAllPriceLevels();
+                if (levels == null) return false;
+
+                var sideValues = new List<decimal>();
+                decimal sum = 0m;
+
+                foreach (var lvl in levels)
+                {
+                    if (lvl == null) continue;
+                    decimal v = isLong ? lvl.Ask : lvl.Bid;
+                    if (v <= 0m) continue;
+                    sideValues.Add(v);
+                    sum += v;
+                }
+
+                if (sum <= 0m || sideValues.Count == 0) return false;
+                sideValues.Sort((a, b) => b.CompareTo(a));
+
+                var top1 = sideValues[0];
+                var top2 = sideValues.Count > 1 ? sideValues[1] : 0m;
+
+                top1Ratio = top1 / sum;
+                top2Ratio = (top1 + top2) / sum;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void FillBreakoutFootprintStats(SetupSnapshot snap, IndicatorCandle c)
+        {
+            try
+            {
+                var maxAsk = c.MaxAskPriceInfo;
+                if (maxAsk != null) snap.MaxAskPrice = maxAsk.Price;
+            }
+            catch { }
+
+            try
+            {
+                var maxBid = c.MaxBidPriceInfo;
+                if (maxBid != null) snap.MaxBidPrice = maxBid.Price;
+            }
+            catch { }
+
+            if (TryGetSideConcentration(c, isLong: true, out var a1, out var a2))
+            {
+                snap.Top1AskRatio = a1;
+                snap.Top2AskRatio = a2;
+            }
+
+            if (TryGetSideConcentration(c, isLong: false, out var b1, out var b2))
+            {
+                snap.Top1BidRatio = b1;
+                snap.Top2BidRatio = b2;
+            }
+        }
+
+        private static bool TryGetPriceLevelDelta(IndicatorCandle c, decimal price, out decimal delta)
+        {
+            delta = 0m;
+            if (price <= 0m) return false;
+            try
+            {
+                var info = c.GetPriceVolumeInfo(price);
+                if (info == null) return false;
+                delta = info.Ask - info.Bid;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static bool IsAbsorptionConflict(SetupPrimitives p, bool isLong)
