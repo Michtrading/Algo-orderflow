@@ -56,6 +56,8 @@ Analyse PowerShell :
 .\tools\analyze-journal.ps1 -Path "$env:APPDATA\ATAS\Strategies\AlgoOrderflow\journal_2026-05-26.csv"
 # LIVE d'un jour précis :
 .\tools\analyze-journal.ps1 -Path "..." -LiveDate "2026-05-26"
+# PnL contrefactuel des vetos (journal shadow) :
+.\tools\analyze-shadow.ps1 -Path "$env:APPDATA\ATAS\Strategies\AlgoOrderflow\journal_shadow_2026-05-29.csv"
 ```
 
 Le script affiche un bloc **BT vs LIVE** (expectancy, exp_R, R_ratio, profit factor), les régimes/modes en backtest, les segments faibles, et le détail live si ≤ 30 trades.

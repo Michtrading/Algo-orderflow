@@ -26,19 +26,29 @@ namespace AlgoOrderflow
             if (!PassesCommonGates(p, out var gateFail))
             {
                 snap.VetoReason = gateFail;
+                LogAbsorptionShadow(evalBar, c, p, snap);
                 return snap;
             }
 
             if (IsAuctionVeto(c, ts))
             {
                 snap.VetoReason = "auction_open";
+                LogAbsorptionShadow(evalBar, c, p, snap);
                 return snap;
             }
 
             if (TrySelectSdZoneSetup(c, p, ts, snap))
                 return FinalizeValidSetup(snap, p);
 
+            if (IsNearAnyTradingZone(c, ts))
+            {
+                snap.VetoReason = "absorption_pattern_veto";
+                LogAbsorptionShadow(evalBar, c, p, snap);
+                return snap;
+            }
+
             snap.VetoReason = "no_zone_match";
+            LogAbsorptionShadow(evalBar, c, p, snap);
             return snap;
         }
 
@@ -76,7 +86,7 @@ namespace AlgoOrderflow
 
             // ── Continuation par absorption (trend) ─────────────────────
             // TrendUp : long au support — delta aligné OU divergence (pullback absorbé)
-            if (_ctx.VwapRegime == VwapRegime.TrendUp && atSupport && p.AbsorptionLong && c.Close > _ctx.RthOpen)
+            if (_ctx.VwapRegime == VwapRegime.TrendUp && atSupport && p.AbsorptionLong)
             {
                 if (p.TrendLong)
                     return AssignSetup(snap, SignalSide.Long, TradeMode.Trend, trend: true, divergence: false);
@@ -85,7 +95,7 @@ namespace AlgoOrderflow
             }
 
             // TrendDown : short à la résistance
-            if (_ctx.VwapRegime == VwapRegime.TrendDown && atResistance && p.AbsorptionShort && c.Close < _ctx.RthOpen)
+            if (_ctx.VwapRegime == VwapRegime.TrendDown && atResistance && p.AbsorptionShort)
             {
                 if (p.TrendShort)
                     return AssignSetup(snap, SignalSide.Short, TradeMode.Trend, trend: true, divergence: false);

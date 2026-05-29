@@ -29,6 +29,7 @@ namespace AlgoOrderflow
             _tradeIdSeq = 0;
             _logFilePath = null;
             _journalFilePath = null;
+            ResetShadowState();
         }
 
         private string GetLogFilePath()

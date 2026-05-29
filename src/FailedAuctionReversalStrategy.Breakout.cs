@@ -26,8 +26,17 @@ namespace AlgoOrderflow
 
             if (_ctx.VwapRegime == VwapRegime.Range)
             {
-                snap.VetoReason = "breakout_range_veto";
-                return snap;
+                if (!BreakoutAllowInRange)
+                {
+                    snap.VetoReason = "breakout_range_veto";
+                    return snap;
+                }
+
+                if (Math.Abs(_ctx.VwapSlopeTicksPerBar) < BreakoutRangeMinSlope)
+                {
+                    snap.VetoReason = "breakout_range_flat_veto";
+                    return snap;
+                }
             }
 
             if (TryBuildBreakoutLong(evalBar, c, p, ts, snap, out var longReason))
@@ -36,14 +45,15 @@ namespace AlgoOrderflow
             if (TryBuildBreakoutShort(evalBar, c, p, ts, snap, out var shortReason))
                 return FinalizeValidSetup(snap, p);
 
-            snap.VetoReason = shortReason ?? longReason ?? "no_breakout";
+            snap.VetoReason = FormatBreakoutVeto(longReason, shortReason);
+            LogBreakoutShadows(evalBar, c, snap, longReason, shortReason);
             return snap;
         }
 
         private bool TryBuildBreakoutLong(int evalBar, IndicatorCandle c, SetupPrimitives p, decimal ts, SetupSnapshot snap, out string reason)
         {
             reason = null;
-            if (_ctx.VwapRegime != VwapRegime.TrendUp) { reason = "breakout_trend_not_up"; return false; }
+            if (!PassesBreakoutTrendFilter(isLong: true, out reason)) return false;
             if (!PassesBreakoutInitiation(c, p, evalBar, ts, isLong: true, out reason)) return false;
             if (IsAbsorptionConflict(p, isLong: true)) { reason = "breakout_absorption_conflict_long"; return false; }
 
@@ -89,7 +99,7 @@ namespace AlgoOrderflow
         private bool TryBuildBreakoutShort(int evalBar, IndicatorCandle c, SetupPrimitives p, decimal ts, SetupSnapshot snap, out string reason)
         {
             reason = null;
-            if (_ctx.VwapRegime != VwapRegime.TrendDown) { reason = "breakout_trend_not_down"; return false; }
+            if (!PassesBreakoutTrendFilter(isLong: false, out reason)) return false;
             if (!PassesBreakoutInitiation(c, p, evalBar, ts, isLong: false, out reason)) return false;
             if (IsAbsorptionConflict(p, isLong: false)) { reason = "breakout_absorption_conflict_short"; return false; }
 
@@ -135,7 +145,7 @@ namespace AlgoOrderflow
         private bool PassesBreakoutInitiation(IndicatorCandle c, SetupPrimitives p, int evalBar, decimal ts, bool isLong, out string reason)
         {
             reason = null;
-            if (!p.VolSurge || p.VolRatio < BreakVolRatioMin) { reason = "breakout_no_volume_surge"; return false; }
+            if (p.VolRatio < BreakVolRatioMin) { reason = "breakout_no_volume_surge"; return false; }
 
             if (isLong)
             {
@@ -417,6 +427,25 @@ namespace AlgoOrderflow
             }
             catch { }
             return 0m;
+        }
+
+        private bool PassesBreakoutTrendFilter(bool isLong, out string reason)
+        {
+            reason = null;
+            if (isLong)
+            {
+                if (_ctx.VwapRegime == VwapRegime.TrendUp) return true;
+                if (BreakoutAllowInRange && _ctx.VwapRegime == VwapRegime.Range && _ctx.VwapSlopeTicksPerBar > 0m)
+                    return true;
+                reason = _ctx.VwapRegime == VwapRegime.Range ? "breakout_range_no_up_bias" : "breakout_trend_not_up";
+                return false;
+            }
+
+            if (_ctx.VwapRegime == VwapRegime.TrendDown) return true;
+            if (BreakoutAllowInRange && _ctx.VwapRegime == VwapRegime.Range && _ctx.VwapSlopeTicksPerBar < 0m)
+                return true;
+            reason = _ctx.VwapRegime == VwapRegime.Range ? "breakout_range_no_down_bias" : "breakout_trend_not_down";
+            return false;
         }
 
         private (int sl, int tp) GetBracketTicksForSetup(SetupSnapshot setup)

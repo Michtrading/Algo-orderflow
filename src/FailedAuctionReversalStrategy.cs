@@ -59,14 +59,15 @@ namespace AlgoOrderflow
         // Moteur v2 — divergence bougie + absorption VPOC + régime
         private bool _useLegacyEngine;
         private bool _enableAbsorptionEngine = true;
-        private bool _enableBreakoutEngine;
+        private bool _enableBreakoutEngine = true;
         private int _volLookbackBars = 3;
-        private decimal _volRatioMin = 1.5m;
-        private decimal _deltaMinAbs = 50m;
-        private decimal _vpocExtremeRatio = 0.65m;
-        private int _zoneProximityTicks = 8;
+        // Preset Research-Wide v2 : collecte multi-jours + journal shadow.
+        private decimal _volRatioMin = 1.05m;
+        private decimal _deltaMinAbs = 25m;
+        private decimal _vpocExtremeRatio = 0.50m;
+        private int _zoneProximityTicks = 16;
         private int _vwapSlopeLookback = 20;
-        private decimal _vwapSlopeTrendThreshold = 0.5m;
+        private decimal _vwapSlopeTrendThreshold = 0.15m;
         private int _auctionOpenRangeTicks = 12;
         private decimal _sdMultiplier1 = 1m;
         private decimal _sdMultiplier2 = 2m;
@@ -74,10 +75,12 @@ namespace AlgoOrderflow
 
         private int _breakSwingLookbackBars = 5;
         private int _breakVolumeLookbackBars = 3;
-        private decimal _breakVolRatioMin = 1.3m;
-        private decimal _breakDeltaMinAbs = 35m;
-        private decimal _breakVelocityMaxRatio = 0.90m;
-        private decimal _breakAcceptanceTopRatio = 0.70m;
+        private decimal _breakVolRatioMin = 1.0m;
+        private decimal _breakDeltaMinAbs = 18m;
+        private decimal _breakVelocityMaxRatio = 1.15m;
+        private decimal _breakAcceptanceTopRatio = 0.55m;
+        private bool _breakoutAllowInRange = true;
+        private decimal _breakoutRangeMinSlope = 0.03m;
         private int _breakConfirmTicks = 0;
         private bool _breakUseConcentrationFilter;
         private decimal _breakConcentrationTop1Min = 0.30m;
@@ -116,6 +119,10 @@ namespace AlgoOrderflow
         private int _dashX = 20;
         private int _dashY = 20;
         private int _fontSize = 11;
+
+        private bool _logShadowVetos = true;
+        private int _shadowMaxForwardBars = 80;
+        private decimal _logShadowMinVolRatio = 1.0m;
 
         private const int DashLabelCol = 235;
 
@@ -319,7 +326,7 @@ namespace AlgoOrderflow
                 setup = EvaluateBreakoutSetup(evalBar, ts);
                 if (setup != null && !string.IsNullOrEmpty(setup.VetoReason))
                 {
-                    if (setup.VetoReason.StartsWith("breakout_", StringComparison.Ordinal)
+                    if (setup.VetoReason.StartsWith("long=", StringComparison.Ordinal)
                         && setup.VetoReason != _lastVetoReason)
                         AddLog($"BREAKOUT VETO {setup.VetoReason}");
                     _lastVetoReason = setup.VetoReason;

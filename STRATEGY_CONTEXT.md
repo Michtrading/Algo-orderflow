@@ -58,16 +58,31 @@
 5. **Régimes** : valider séparément TREND et MEAN_REVERT
 6. **Métriques** : win rate, avg R, expectancy, max drawdown journalier
 
-## Paramètres actuels (défauts v2)
+## Preset par défaut : Research-Wide v2 (collecte multi-jours)
 
-| Groupe | Paramètre | Défaut |
-|--------|-----------|--------|
-| Setup | `VolLookbackBars` | 3 |
-| Setup | `VolRatioMin` | 1.5 |
-| Setup | `DeltaMinAbs` | 50 |
-| Setup | `VpocExtremeRatio` | 0.25 |
-| Setup | `ZoneProximityTicks` | 4 |
-| Regime | `VwapSlopeLookback` | 20 |
-| Regime | `VwapSlopeTrendThreshold` | 0.5 tick/bar |
-| Regime | `AuctionOpenRangeTicks` | — |
-| Regime | `SdMultiplier1/2` | 1 / 2 |
+Objectif : générer assez de trades + journal shadow pour mesurer l'impact des vetos.
+
+| Groupe | Paramètre | Défaut v2 |
+|--------|-----------|-----------|
+| Setup | `VolRatioMin` | 1.05 |
+| Setup | `DeltaMinAbs` | 25 |
+| Setup | `VpocExtremeRatio` | 0.50 |
+| Setup | `ZoneProximityTicks` | 16 |
+| Regime | `VwapSlopeTrendThreshold` | 0.15 |
+| Breakout | `BreakVolRatioMin` | 1.0 (indépendant de VolRatioMin) |
+| Breakout | `BreakDeltaMinAbs` | 18 |
+| Breakout | `BreakAcceptanceTopRatio` | 0.55 |
+| Recherche | `LogShadowVetos` | ON |
+| Recherche | `ShadowMaxForwardBars` | 80 |
+
+Fichier shadow : `%APPDATA%/ATAS/Strategies/AlgoOrderflow/journal_shadow_yyyy-MM-dd.csv`
+
+Analyse :
+`powershell -File tools/analyze-shadow.ps1 -Path "...journal_shadow_2026-05-29.csv"`
+
+## Journal de recherche (2026-05-29)
+
+- Session live 15h30 : 0 trade ; vetos dominants volume/régime (pas un problème de parsing).
+- Vol ratio 1.5 peut passer le filtre volume et échouer sur delta/absorption/zone/trigger/acceptance.
+- Ajout journal shadow + veto `absorption_pattern_veto` (zone OK, pattern incomplet).
+- Breakout log : `long=...;short=...` pour diagnostic honnête.

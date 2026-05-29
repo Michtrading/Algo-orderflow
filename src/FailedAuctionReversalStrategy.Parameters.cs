@@ -134,6 +134,35 @@ namespace AlgoOrderflow
             set => SetTradingParam(ref _allowCounterTrendShortMeanRevert, value);
         }
 
+        // ── Recherche / shadow journal ──────────────────────────────────
+
+        [Display(Name = "Journal shadow vetos", GroupName = "Recherche", Order = 1,
+            Description = "Log contrefactuel des setups vetés + PnL simulé SL/TP dans journal_shadow_yyyy-MM-dd.csv.")]
+        [Parameter]
+        public bool LogShadowVetos
+        {
+            get => _logShadowVetos;
+            set => SetTradingParam(ref _logShadowVetos, value);
+        }
+
+        [Display(Name = "Shadow forward max (barres)", GroupName = "Recherche", Order = 2,
+            Description = "Nombre max de barres pour simuler TP/SL sur un veto.")]
+        [Parameter]
+        public int ShadowMaxForwardBars
+        {
+            get => _shadowMaxForwardBars;
+            set => SetTradingParam(ref _shadowMaxForwardBars, value);
+        }
+
+        [Display(Name = "Shadow vol ratio min", GroupName = "Recherche", Order = 3,
+            Description = "Vol ratio minimum pour enregistrer une ligne shadow.")]
+        [Parameter]
+        public decimal LogShadowMinVolRatio
+        {
+            get => _logShadowMinVolRatio;
+            set => SetTradingParam(ref _logShadowMinVolRatio, value);
+        }
+
         // ── Breakout ────────────────────────────────────────────────────
 
         [Display(Name = "Swing lookback (barres)", GroupName = "Breakout", Order = 20)]
@@ -151,6 +180,24 @@ namespace AlgoOrderflow
         {
             get => _breakVolumeLookbackBars;
             set => SetTradingParam(ref _breakVolumeLookbackBars, value);
+        }
+
+        [Display(Name = "Autoriser breakout en Range", GroupName = "Breakout", Order = 18,
+            Description = "ON (recherche): breakout en Range si pente VWAP signée. OFF (production): breakout uniquement en TrendUp/Down.")]
+        [Parameter]
+        public bool BreakoutAllowInRange
+        {
+            get => _breakoutAllowInRange;
+            set => SetTradingParam(ref _breakoutAllowInRange, value);
+        }
+
+        [Display(Name = "Pente VWAP min en Range (ticks/bar)", GroupName = "Breakout", Order = 19,
+            Description = "En Range, |pente| doit dépasser ce seuil pour éviter les breakouts sans direction.")]
+        [Parameter]
+        public decimal BreakoutRangeMinSlope
+        {
+            get => _breakoutRangeMinSlope;
+            set => SetTradingParam(ref _breakoutRangeMinSlope, value);
         }
 
         [Display(Name = "Ratio volume min", GroupName = "Breakout", Order = 22)]
